@@ -72,6 +72,7 @@ public class EntityKeyMapping {
     private static final String PHONE = "phone";
 
     public static final List<String> commonEntityFields = Arrays.asList(CREATED_TIME, ENTITY_TYPE, NAME);
+    public static final List<String> dashboardEntityFields = Arrays.asList(CREATED_TIME, ENTITY_TYPE, TITLE);
     public static final List<String> labeledEntityFields = Arrays.asList(CREATED_TIME, ENTITY_TYPE, NAME, TYPE, LABEL);
     public static final List<String> contactBasedEntityFields = Arrays.asList(CREATED_TIME, ENTITY_TYPE, EMAIL, TITLE, COUNTRY, STATE, CITY, ADDRESS, ADDRESS_2, ZIP, PHONE);
 
@@ -89,7 +90,7 @@ public class EntityKeyMapping {
 
         allowedEntityFieldMap.put(EntityType.USER, new HashSet<>(Arrays.asList(CREATED_TIME, FIRST_NAME, LAST_NAME, EMAIL)));
 
-        allowedEntityFieldMap.put(EntityType.DASHBOARD, new HashSet<>(commonEntityFields));
+        allowedEntityFieldMap.put(EntityType.DASHBOARD, new HashSet<>(dashboardEntityFields));
         allowedEntityFieldMap.put(EntityType.RULE_CHAIN, new HashSet<>(commonEntityFields));
         allowedEntityFieldMap.put(EntityType.RULE_NODE, new HashSet<>(commonEntityFields));
         allowedEntityFieldMap.put(EntityType.WIDGET_TYPE, new HashSet<>(commonEntityFields));
@@ -118,12 +119,12 @@ public class EntityKeyMapping {
         contactBasedAliases.put(LABEL, TITLE);
         aliases.put(EntityType.TENANT, contactBasedAliases);
         aliases.put(EntityType.CUSTOMER, contactBasedAliases);
+        aliases.put(EntityType.DASHBOARD, contactBasedAliases);
         Map<String, String> commonEntityAliases = new HashMap<>();
         commonEntityAliases.put(TITLE, NAME);
         aliases.put(EntityType.DEVICE, commonEntityAliases);
         aliases.put(EntityType.ASSET, commonEntityAliases);
         aliases.put(EntityType.ENTITY_VIEW, commonEntityAliases);
-        aliases.put(EntityType.DASHBOARD, commonEntityAliases);
         aliases.put(EntityType.WIDGETS_BUNDLE, commonEntityAliases);
 
         Map<String, String> userEntityAliases = new HashMap<>();
@@ -161,13 +162,17 @@ public class EntityKeyMapping {
 
     public String toSelection(EntityFilterType filterType, EntityType entityType) {
         if (entityKey.getType().equals(EntityKeyType.ENTITY_FIELD)) {
-            Set<String> existingEntityFields = getExistingEntityFields(filterType, entityType);
-            String alias = getEntityFieldAlias(filterType, entityType);
-            if (existingEntityFields.contains(alias)) {
-                String column = entityFieldColumnMap.get(alias);
-                return String.format("e.%s as %s", column, getValueAlias());
+            if (entityKey.getKey().equals("entityType") && !filterType.equals(EntityFilterType.RELATIONS_QUERY)) {
+                return String.format("'%s' as %s", entityType.name(), getValueAlias());
             } else {
-                return String.format("'' as %s", getValueAlias());
+                Set<String> existingEntityFields = getExistingEntityFields(filterType, entityType);
+                String alias = getEntityFieldAlias(filterType, entityType);
+                if (existingEntityFields.contains(alias)) {
+                    String column = entityFieldColumnMap.get(alias);
+                    return String.format("e.%s as %s", column, getValueAlias());
+                } else {
+                    return String.format("'' as %s", getValueAlias());
+                }
             }
         } else if (entityKey.getType().equals(EntityKeyType.TIME_SERIES)) {
             return buildTimeSeriesSelection();
@@ -213,11 +218,11 @@ public class EntityKeyMapping {
         return alias;
     }
 
-    public Stream<String> toQueries(QueryContext ctx, EntityFilterType filterType, EntityType entityType) {
+    public Stream<String> toQueries(QueryContext ctx, EntityFilterType filterType) {
         if (hasFilter()) {
             String keyAlias = entityKey.getType().equals(EntityKeyType.ENTITY_FIELD) ? "e" : alias;
             return keyFilters.stream().map(keyFilter ->
-                    this.buildKeyQuery(ctx, keyAlias, keyFilter, filterType, entityType));
+                    this.buildKeyQuery(ctx, keyAlias, keyFilter, filterType));
         } else {
             return null;
         }
@@ -230,15 +235,17 @@ public class EntityKeyMapping {
         } else {
             entityTypeStr = "'" + entityType.name() + "'";
         }
-        String join = hasFilter() ? "left join" : "left outer join";
         ctx.addStringParameter(alias + "_key_id", entityKey.getKey());
         if (entityKey.getType().equals(EntityKeyType.TIME_SERIES)) {
+            String join = hasFilter() ? "left join" : "left outer join";
             return String.format("%s ts_kv_latest %s ON %s.entity_id=entities.id AND %s.key = (select key_id from ts_kv_dictionary where key = :%s_key_id)",
                     join, alias, alias, alias, alias);
         } else {
-            String query = String.format("%s attribute_kv %s ON %s.entity_id=entities.id AND %s.entity_type=%s AND %s.attribute_key=:%s_key_id",
-                    join, alias, alias, alias, entityTypeStr, alias, alias);
+            String query;
             if (!entityKey.getType().equals(EntityKeyType.ATTRIBUTE)) {
+                String join = hasFilter() ? "left join" : "left outer join";
+                query = String.format("%s attribute_kv %s ON %s.entity_id=entities.id AND %s.entity_type=%s AND %s.attribute_key=:%s_key_id",
+                        join, alias, alias, alias, entityTypeStr, alias, alias);
                 String scope;
                 if (entityKey.getType().equals(EntityKeyType.CLIENT_ATTRIBUTE)) {
                     scope = DataConstants.CLIENT_SCOPE;
@@ -248,6 +255,11 @@ public class EntityKeyMapping {
                     scope = DataConstants.SERVER_SCOPE;
                 }
                 query = String.format("%s AND %s.attribute_type='%s'", query, alias, scope);
+            } else {
+                String join = hasFilter() ? "join LATERAL" : "left join LATERAL";
+                query = String.format("%s (select * from attribute_kv %s WHERE %s.entity_id=entities.id AND %s.entity_type=%s AND %s.attribute_key=:%s_key_id " +
+                                "ORDER BY %s.last_update_ts DESC limit 1) as %s ON true",
+                        join, alias, alias, alias, entityTypeStr, alias, alias, alias, alias);
             }
             return query;
         }
@@ -263,8 +275,8 @@ public class EntityKeyMapping {
                 Collectors.joining(" "));
     }
 
-    public static String buildQuery(QueryContext ctx, List<EntityKeyMapping> mappings, EntityFilterType filterType, EntityType entityType) {
-        return mappings.stream().flatMap(mapping -> mapping.toQueries(ctx, filterType, entityType)).filter(Objects::nonNull).collect(
+    public static String buildQuery(QueryContext ctx, List<EntityKeyMapping> mappings, EntityFilterType filterType) {
+        return mappings.stream().flatMap(mapping -> mapping.toQueries(ctx, filterType)).filter(Objects::nonNull).collect(
                 Collectors.joining(" AND "));
     }
 
@@ -377,33 +389,33 @@ public class EntityKeyMapping {
     }
 
     private String buildKeyQuery(QueryContext ctx, String alias, KeyFilter keyFilter,
-                                 EntityFilterType filterType, EntityType entityType) {
-        return this.buildPredicateQuery(ctx, alias, keyFilter.getKey(), keyFilter.getPredicate(), filterType, entityType);
+                                 EntityFilterType filterType) {
+        return this.buildPredicateQuery(ctx, alias, keyFilter.getKey(), keyFilter.getPredicate(), filterType);
     }
 
     private String buildPredicateQuery(QueryContext ctx, String alias, EntityKey key,
-                                       KeyFilterPredicate predicate, EntityFilterType filterType, EntityType entityType) {
+                                       KeyFilterPredicate predicate, EntityFilterType filterType) {
         if (predicate.getType().equals(FilterPredicateType.COMPLEX)) {
-            return this.buildComplexPredicateQuery(ctx, alias, key, (ComplexFilterPredicate) predicate, filterType, entityType);
+            return this.buildComplexPredicateQuery(ctx, alias, key, (ComplexFilterPredicate) predicate, filterType);
         } else {
-            return this.buildSimplePredicateQuery(ctx, alias, key, predicate, filterType, entityType);
+            return this.buildSimplePredicateQuery(ctx, alias, key, predicate, filterType);
         }
     }
 
     private String buildComplexPredicateQuery(QueryContext ctx, String alias, EntityKey key,
-                                              ComplexFilterPredicate predicate, EntityFilterType filterType, EntityType entityType) {
+                                              ComplexFilterPredicate predicate, EntityFilterType filterType) {
         return predicate.getPredicates().stream()
-                .map(keyFilterPredicate -> this.buildPredicateQuery(ctx, alias, key, keyFilterPredicate, filterType, entityType))
+                .map(keyFilterPredicate -> this.buildPredicateQuery(ctx, alias, key, keyFilterPredicate, filterType))
                 .filter(Objects::nonNull).collect(Collectors.joining(
                         " " + predicate.getOperation().name() + " "
                 ));
     }
 
     private String buildSimplePredicateQuery(QueryContext ctx, String alias, EntityKey key,
-                                             KeyFilterPredicate predicate, EntityFilterType filterType, EntityType entityType) {
+                                             KeyFilterPredicate predicate, EntityFilterType filterType) {
         if (key.getType().equals(EntityKeyType.ENTITY_FIELD)) {
-            Set<String> existingEntityFields = getExistingEntityFields(filterType, entityType);
-            String entityFieldAlias = getEntityFieldAlias(filterType, entityType);
+            Set<String> existingEntityFields = getExistingEntityFields(filterType, ctx.getEntityType());
+            String entityFieldAlias = getEntityFieldAlias(filterType, ctx.getEntityType());
             String column = null;
             if (existingEntityFields.contains(entityFieldAlias)) {
                 column = entityFieldColumnMap.get(entityFieldAlias);

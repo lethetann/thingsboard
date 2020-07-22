@@ -75,7 +75,8 @@ CREATE OR REPLACE PROCEDURE drop_all_idx()
 $$
 BEGIN
     DROP INDEX IF EXISTS idx_alarm_originator_alarm_type;
-    DROP INDEX IF EXISTS idx_alarm_originator_alarm_time;
+    DROP INDEX IF EXISTS idx_alarm_originator_created_time;
+    DROP INDEX IF EXISTS idx_alarm_tenant_created_time;
     DROP INDEX IF EXISTS idx_event_type_entity_id;
     DROP INDEX IF EXISTS idx_relation_to_id;
     DROP INDEX IF EXISTS idx_relation_from_id;
@@ -93,7 +94,8 @@ CREATE OR REPLACE PROCEDURE create_all_idx()
 $$
 BEGIN
     CREATE INDEX IF NOT EXISTS idx_alarm_originator_alarm_type ON alarm(originator_id, type, start_ts DESC);
-    CREATE INDEX IF NOT EXISTS idx_alarm_originator_alarm_time ON alarm(originator_id, created_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_alarm_originator_created_time ON alarm(originator_id, created_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_alarm_tenant_created_time ON alarm(tenant_id, created_time DESC);
     CREATE INDEX IF NOT EXISTS idx_event_type_entity_id ON event(tenant_id, event_type, entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_relation_to_id ON relation(relation_type_group, to_type, to_id);
     CREATE INDEX IF NOT EXISTS idx_relation_from_id ON relation(relation_type_group, from_type, from_id);
@@ -453,7 +455,25 @@ BEGIN
 
     data_type := get_column_type(table_name, column_device_id);
     IF data_type = 'character varying' THEN
+        ALTER TABLE device_credentials DROP CONSTRAINT IF EXISTS device_credentials_device_id_unq_key;
         PERFORM column_type_to_uuid(table_name, column_device_id);
+        -- remove duplicate credentials with same device_id
+        DELETE from device_credentials where id in (
+            select dc.id
+                from (
+                    SELECT id, device_id,
+                             ROW_NUMBER() OVER (
+                                 PARTITION BY
+                                     device_id
+                                 ORDER BY
+                                     created_time DESC
+                             ) row_num
+                    FROM
+                         device_credentials
+                    ) as dc
+            WHERE dc.row_num > 1
+        );
+        ALTER TABLE device_credentials ADD CONSTRAINT device_credentials_device_id_unq_key UNIQUE (device_id);
         RAISE NOTICE 'Table % column % updated!', table_name, column_device_id;
     ELSE
         RAISE NOTICE 'Table % column % already updated!', table_name, column_device_id;

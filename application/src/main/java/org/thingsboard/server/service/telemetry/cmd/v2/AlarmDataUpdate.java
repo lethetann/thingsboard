@@ -17,6 +17,7 @@ package org.thingsboard.server.service.telemetry.cmd.v2;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.query.AlarmData;
@@ -27,8 +28,15 @@ import java.util.List;
 
 public class AlarmDataUpdate extends DataUpdate<AlarmData> {
 
-    public AlarmDataUpdate(int cmdId, PageData<AlarmData> data, List<AlarmData> update) {
+    @Getter
+    private long allowedEntities;
+    @Getter
+    private long totalEntities;
+
+    public AlarmDataUpdate(int cmdId, PageData<AlarmData> data, List<AlarmData> update, long allowedEntities, long totalEntities) {
         super(cmdId, data, update, SubscriptionErrorCode.NO_ERROR.getCode(), null);
+        this.allowedEntities = allowedEntities;
+        this.totalEntities = totalEntities;
     }
 
     public AlarmDataUpdate(int cmdId, int errorCode, String errorMsg) {
@@ -45,7 +53,11 @@ public class AlarmDataUpdate extends DataUpdate<AlarmData> {
                            @JsonProperty("data") PageData<AlarmData> data,
                            @JsonProperty("update") List<AlarmData> update,
                            @JsonProperty("errorCode") int errorCode,
-                           @JsonProperty("errorMsg") String errorMsg) {
+                           @JsonProperty("errorMsg") String errorMsg,
+                           @JsonProperty("allowedEntities") long allowedEntities,
+                           @JsonProperty("totalEntities") long totalEntities) {
         super(cmdId, data, update, errorCode, errorMsg);
+        this.allowedEntities = allowedEntities;
+        this.totalEntities = totalEntities;
     }
 }

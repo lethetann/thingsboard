@@ -18,6 +18,7 @@ package org.thingsboard.server.dao.sql.query;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.TransactionStatus;
@@ -38,9 +39,9 @@ import org.thingsboard.server.common.data.query.EntityDataSortOrder;
 import org.thingsboard.server.common.data.query.EntityKey;
 import org.thingsboard.server.common.data.query.EntityKeyType;
 import org.thingsboard.server.dao.model.ModelConstants;
-import org.thingsboard.server.dao.util.SqlDao;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,7 +51,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@SqlDao
 @Repository
 @Slf4j
 public class DefaultAlarmQueryRepository implements AlarmQueryRepository {
@@ -113,6 +113,9 @@ public class DefaultAlarmQueryRepository implements AlarmQueryRepository {
 
     protected final NamedParameterJdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
+
+    @Value("${sql.log_entity_queries:false}")
+    private boolean logSqlQueries;
 
     public DefaultAlarmQueryRepository(NamedParameterJdbcTemplate jdbcTemplate, TransactionTemplate transactionTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -237,6 +240,10 @@ public class DefaultAlarmQueryRepository implements AlarmQueryRepository {
                 dataQuery = String.format("%s limit %s offset %s", dataQuery, pageLink.getPageSize(), startIndex);
             }
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(dataQuery, ctx);
+            if (logSqlQueries) {
+                log.info("QUERY: {}", dataQuery);
+                Arrays.asList(ctx.getParameterNames()).forEach(param -> log.info("QUERY PARAM: {}->{}", param, ctx.getValue(param)));
+            }
             return AlarmDataAdapter.createAlarmData(pageLink, rows, totalElements, orderedEntityIds);
         });
     }

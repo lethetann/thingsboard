@@ -13,33 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.server.queue.sqs;
+package org.thingsboard.server.dao.sql.query;
 
-import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
-@Slf4j
-@ConditionalOnExpression("'${queue.type:null}'=='aws-sqs'")
+import java.util.Arrays;
+
 @Component
-@Data
-public class TbAwsSqsSettings {
+@Slf4j
+public class DefaultQueryLogComponent implements QueryLogComponent {
 
-    @Value("${queue.aws_sqs.use_default_credential_provider_chain}")
-    private Boolean useDefaultCredentialProviderChain;
+    @Value("${sql.log_queries:false}")
+    private boolean logSqlQueries;
+    @Value("${sql.log_queries_threshold:5000}")
+    private long logQueriesThreshold;
 
-    @Value("${queue.aws_sqs.access_key_id}")
-    private String accessKeyId;
-
-    @Value("${queue.aws_sqs.secret_access_key}")
-    private String secretAccessKey;
-
-    @Value("${queue.aws_sqs.region}")
-    private String region;
-
-    @Value("${queue.aws_sqs.threads_per_topic}")
-    private int threadsPerTopic;
-
+    @Override
+    public void logQuery(QueryContext ctx, String query, long duration) {
+        if (logSqlQueries && duration > logQueriesThreshold) {
+            log.info("QUERY: {} took {}ms", query, duration);
+            Arrays.asList(ctx.getParameterNames()).forEach(param -> log.info("QUERY PARAM: {} -> {}", param, ctx.getValue(param)));
+        }
+    }
 }

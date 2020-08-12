@@ -13,26 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-:host {
-  width: 100%;
-  height: 100%;
-  .tb-table-widget {
-    .table-container {
-      position: relative;
-    }
-    .mat-table {
-      .mat-row {
-        &.invisible {
-          visibility: hidden;
-        }
-      }
-    }
-    span.no-data-found {
-      position: absolute;
-      top: 60px;
-      bottom: 0;
-      left: 0;
-      right: 0;
-    }
-  }
+package org.thingsboard.server.dao.sql.query;
+
+public interface QueryLogComponent {
+
+    void logQuery(QueryContext ctx, String query, long duration);
 }
